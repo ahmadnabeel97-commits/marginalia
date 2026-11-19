@@ -1,0 +1,500 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function memberPath(libraryId, uid) {
+      return /databases/$(database)/documents/libraries/$(libraryId)/members/$(uid);
+    }
+
+    function isActiveMember(libraryId) {
+      return signedIn()
+        && exists(memberPath(libraryId, request.auth.uid))
+        && get(memberPath(libraryId, request.auth.uid)).data.active == true;
+    }
+
+    function isAdmin(libraryId) {
+      return isActiveMember(libraryId)
+        && get(memberPath(libraryId, request.auth.uid)).data.role == "admin";
+    }
+
+    function validAuditCreate() {
+      return request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validAuditUpdate() {
+      return request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // Stage 7A: optional owner of a copy (a member uid, or the word "shared") and the owner's name at the time.
+    function validCopyOwner() {
+      return (!request.resource.data.keys().hasAny(["ownerId"])
+              || (request.resource.data.ownerId is string
+                  && request.resource.data.ownerId.size() >= 1
+                  && request.resource.data.ownerId.size() <= 128))
+        && (!request.resource.data.keys().hasAny(["ownerName"])
+              || (request.resource.data.ownerName is string
+                  && request.resource.data.ownerName.size() <= 60));
+    }
+
+    // Stage 7B: optional total page count of a book.
+    function validTotalPages() {
+      return !request.resource.data.keys().hasAny(["totalPages"])
+        || (request.resource.data.totalPages is int
+            && request.resource.data.totalPages >= 1
+            && request.resource.data.totalPages <= 20000);
+    }
+
+    // Stage 7B: optional reading progress fields on a reading record.
+    function validReadingProgress() {
+      return (!request.resource.data.keys().hasAny(["currentPage"])
+              || (request.resource.data.currentPage is int
+                  && request.resource.data.currentPage >= 0
+                  && request.resource.data.currentPage <= 20000))
+        && (!request.resource.data.keys().hasAny(["startedAt"])
+              || request.resource.data.startedAt is timestamp)
+        && (!request.resource.data.keys().hasAny(["finishedAt"])
+              || request.resource.data.finishedAt is timestamp);
+    }
+
+    // Stage 7D: optional goals of a reading challenge.
+    function validChallengeGoals() {
+      return request.resource.data.keys().hasAny(["goalBooks", "goalPages"])
+        && (!request.resource.data.keys().hasAny(["goalBooks"])
+              || (request.resource.data.goalBooks is int
+                  && request.resource.data.goalBooks >= 1
+                  && request.resource.data.goalBooks <= 1000))
+        && (!request.resource.data.keys().hasAny(["goalPages"])
+              || (request.resource.data.goalPages is int
+                  && request.resource.data.goalPages >= 1
+                  && request.resource.data.goalPages <= 1000000));
+    }
+
+    function copyPath(libraryId, copyId) {
+      return /databases/$(database)/documents/libraries/$(libraryId)/copies/$(copyId);
+    }
+
+    function loanPath(libraryId, loanId) {
+      return /databases/$(database)/documents/libraries/$(libraryId)/loans/$(loanId);
+    }
+
+    match /libraries/{libraryId} {
+      allow get: if isActiveMember(libraryId);
+      allow list: if false;
+      allow create, update, delete: if false;
+
+      match /members/{memberId} {
+        allow get: if signedIn()
+          && (request.auth.uid == memberId || isActiveMember(libraryId));
+        allow list: if isActiveMember(libraryId);
+
+        allow create: if isAdmin(libraryId)
+          && request.resource.data.keys().hasOnly([
+            "uid", "email", "displayName", "role", "active", "createdAt", "createdBy"
+          ])
+          && request.resource.data.uid == memberId
+          && request.resource.data.role == "member"
+          && request.resource.data.active == true
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.email is string
+          && request.resource.data.displayName is string;
+
+        allow update: if isAdmin(libraryId)
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["email", "displayName", "active"]);
+
+        allow delete: if false;
+      }
+
+      match /books/{bookId} {
+        allow read: if isActiveMember(libraryId);
+        allow create: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["title", "author", "createdAt", "createdBy", "updatedAt", "updatedBy"])
+          && request.resource.data.keys().hasOnly([
+            "title", "author", "genre", "isbn", "publisher", "publicationYear",
+            "coverUrl", "description", "language", "originalTitle", "authorOriginal",
+            "totalPages",
+            "createdAt", "createdBy", "updatedAt", "updatedBy"
+          ])
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.title.size() <= 180
+          && request.resource.data.author is string
+          && request.resource.data.author.size() > 0
+          && request.resource.data.author.size() <= 140
+          && (!request.resource.data.keys().hasAny(["language"])
+              || request.resource.data.language in ["bn", "en", "other"])
+          && (!request.resource.data.keys().hasAny(["originalTitle"])
+              || (request.resource.data.originalTitle is string
+                  && request.resource.data.originalTitle.size() <= 180))
+          && (!request.resource.data.keys().hasAny(["authorOriginal"])
+              || (request.resource.data.authorOriginal is string
+                  && request.resource.data.authorOriginal.size() <= 140))
+          && validTotalPages()
+          && validAuditCreate();
+        allow update: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["title", "author", "createdAt", "createdBy", "updatedAt", "updatedBy"])
+          && request.resource.data.keys().hasOnly([
+            "title", "author", "genre", "isbn", "publisher", "publicationYear",
+            "coverUrl", "description", "language", "originalTitle", "authorOriginal",
+            "totalPages",
+            "createdAt", "createdBy", "updatedAt", "updatedBy"
+          ])
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.title.size() <= 180
+          && request.resource.data.author is string
+          && request.resource.data.author.size() > 0
+          && request.resource.data.author.size() <= 140
+          && (!request.resource.data.keys().hasAny(["language"])
+              || request.resource.data.language in ["bn", "en", "other"])
+          && (!request.resource.data.keys().hasAny(["originalTitle"])
+              || (request.resource.data.originalTitle is string
+                  && request.resource.data.originalTitle.size() <= 180))
+          && (!request.resource.data.keys().hasAny(["authorOriginal"])
+              || (request.resource.data.authorOriginal is string
+                  && request.resource.data.authorOriginal.size() <= 140))
+          && validTotalPages()
+          && validAuditUpdate();
+        allow delete: if isActiveMember(libraryId);
+      }
+
+      match /copies/{copyId} {
+        allow read: if isActiveMember(libraryId);
+        allow create: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["bookId", "condition", "status", "createdAt", "createdBy", "updatedAt", "updatedBy"])
+          && request.resource.data.keys().hasOnly([
+            "bookId", "copyLabel", "condition", "status", "locationId", "notes",
+            "ownerId", "ownerName",
+            "createdAt", "createdBy", "updatedAt", "updatedBy"
+          ])
+          && request.resource.data.bookId is string
+          && request.resource.data.condition in ["Like new", "Good", "Fair", "Poor"]
+          && request.resource.data.status in ["Available", "Reading", "Repair"]
+          && validCopyOwner()
+          && validAuditCreate();
+
+        // Ordinary edits may change descriptive fields/status among non-loan states.
+        // Loaned/Available transitions require a matching atomic loan transaction.
+        allow update: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["bookId", "condition", "status", "createdAt", "createdBy", "updatedAt", "updatedBy"])
+          && request.resource.data.keys().hasOnly([
+            "bookId", "copyLabel", "condition", "status", "locationId", "notes", "activeLoanId",
+            "ownerId", "ownerName",
+            "createdAt", "createdBy", "updatedAt", "updatedBy"
+          ])
+          && request.resource.data.bookId is string
+          && request.resource.data.condition in ["Like new", "Good", "Fair", "Poor"]
+          && validCopyOwner()
+          && validAuditUpdate()
+          && (
+            (
+              request.resource.data.status in ["Available", "Reading", "Repair"]
+              && resource.data.status in ["Available", "Reading", "Repair"]
+              && !resource.data.keys().hasAny(["activeLoanId"])
+              && !request.resource.data.keys().hasAny(["activeLoanId"])
+            )
+            ||
+            (
+              resource.data.status == "Available"
+              && !resource.data.keys().hasAny(["activeLoanId"])
+              && request.resource.data.bookId == resource.data.bookId
+              && request.resource.data.status == "Loaned"
+              && request.resource.data.activeLoanId is string
+              && existsAfter(loanPath(libraryId, request.resource.data.activeLoanId))
+              && getAfter(loanPath(libraryId, request.resource.data.activeLoanId)).data.copyId == copyId
+              && getAfter(loanPath(libraryId, request.resource.data.activeLoanId)).data.status == "Borrowed"
+            )
+            ||
+            (
+              resource.data.status == "Loaned"
+              && resource.data.activeLoanId is string
+              && request.resource.data.bookId == resource.data.bookId
+              && request.resource.data.status == "Available"
+              && !request.resource.data.keys().hasAny(["activeLoanId"])
+              && getAfter(loanPath(libraryId, resource.data.activeLoanId)).data.status == "Returned"
+              && getAfter(loanPath(libraryId, resource.data.activeLoanId)).data.returnedAt is timestamp
+            )
+            ||
+            (
+              resource.data.status == "Loaned"
+              && request.resource.data.status == "Loaned"
+              && request.resource.data.bookId == resource.data.bookId
+              && request.resource.data.get("activeLoanId", null) == resource.data.get("activeLoanId", null)
+            )
+          );
+
+        allow delete: if isActiveMember(libraryId)
+          && resource.data.status != "Loaned"
+          && !resource.data.keys().hasAny(["activeLoanId"]);
+      }
+
+      match /locations/{locationId} {
+        allow read: if isActiveMember(libraryId);
+        allow create: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["name", "type", "createdAt", "createdBy", "updatedAt", "updatedBy"])
+          && request.resource.data.keys().hasOnly([
+            "name", "type", "parentId", "notes", "createdAt", "createdBy", "updatedAt", "updatedBy"
+          ])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 100
+          && request.resource.data.type in ["room", "bookshelf", "shelf"]
+          && validAuditCreate();
+        allow update: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["name", "type", "createdAt", "createdBy", "updatedAt", "updatedBy"])
+          && request.resource.data.keys().hasOnly([
+            "name", "type", "parentId", "notes", "createdAt", "createdBy", "updatedAt", "updatedBy"
+          ])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 100
+          && request.resource.data.type in ["room", "bookshelf", "shelf"]
+          && validAuditUpdate();
+        allow delete: if isActiveMember(libraryId);
+      }
+
+      match /loans/{loanId} {
+        allow read: if isActiveMember(libraryId);
+        allow create: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll([
+            "copyId", "bookId", "bookTitle", "borrowerName", "borrowedAt", "dueAt", "returnedAt", "status",
+            "createdBy", "createdAt", "updatedBy", "updatedAt"
+          ])
+          && request.resource.data.keys().hasOnly([
+            "copyId", "bookId", "bookTitle", "copyLabel", "borrowerName", "borrowedAt", "dueAt", "returnedAt", "status", "notes",
+            "createdBy", "createdAt", "updatedBy", "updatedAt"
+          ])
+          && request.resource.data.copyId is string
+          && request.resource.data.bookId is string
+          && request.resource.data.bookTitle is string
+          && request.resource.data.bookTitle.size() > 0
+          && request.resource.data.bookTitle.size() <= 180
+          && (!request.resource.data.keys().hasAny(["copyLabel"]) || request.resource.data.copyLabel is string)
+          && (!request.resource.data.keys().hasAny(["notes"]) || (request.resource.data.notes is string && request.resource.data.notes.size() <= 1000))
+          && request.resource.data.borrowerName is string
+          && request.resource.data.borrowerName.size() > 0
+          && request.resource.data.borrowerName.size() <= 120
+          && request.resource.data.borrowedAt is timestamp
+          && request.resource.data.dueAt is timestamp
+          && request.resource.data.dueAt >= request.resource.data.borrowedAt
+          && request.resource.data.returnedAt == null
+          && request.resource.data.status == "Borrowed"
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt == request.time
+          && exists(copyPath(libraryId, request.resource.data.copyId))
+          && get(copyPath(libraryId, request.resource.data.copyId)).data.bookId == request.resource.data.bookId
+          && get(copyPath(libraryId, request.resource.data.copyId)).data.status == "Available"
+          && getAfter(copyPath(libraryId, request.resource.data.copyId)).data.status == "Loaned"
+          && getAfter(copyPath(libraryId, request.resource.data.copyId)).data.bookId == request.resource.data.bookId
+          && getAfter(copyPath(libraryId, request.resource.data.copyId)).data.activeLoanId == loanId;
+
+        allow update: if isActiveMember(libraryId)
+          && resource.data.status == "Borrowed"
+          && request.resource.data.status == "Returned"
+          && request.resource.data.returnedAt is timestamp
+          && request.resource.data.returnedAt >= resource.data.borrowedAt
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "returnedAt", "updatedBy", "updatedAt"])
+          && request.resource.data.copyId == resource.data.copyId
+          && request.resource.data.bookId == resource.data.bookId
+          && request.resource.data.bookTitle == resource.data.bookTitle
+          && request.resource.data.get("copyLabel", null) == resource.data.get("copyLabel", null)
+          && request.resource.data.get("notes", null) == resource.data.get("notes", null)
+          && request.resource.data.borrowerName == resource.data.borrowerName
+          && request.resource.data.borrowedAt == resource.data.borrowedAt
+          && request.resource.data.dueAt == resource.data.dueAt
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt == request.time
+          && getAfter(copyPath(libraryId, resource.data.copyId)).data.status == "Available"
+          && !getAfter(copyPath(libraryId, resource.data.copyId)).data.keys().hasAny(["activeLoanId"]);
+
+        // Stage 6C: extending the due date of a loan that is still out.
+        // Only dueAt (made later, at most about a year ahead) and the audit fields may change.
+        allow update: if isActiveMember(libraryId)
+          && resource.data.status == "Borrowed"
+          && request.resource.data.status == "Borrowed"
+          && request.resource.data.dueAt is timestamp
+          && request.resource.data.dueAt > resource.data.dueAt
+          && request.resource.data.dueAt <= request.time + duration.value(366, "d")
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["dueAt", "updatedBy", "updatedAt"])
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt == request.time;
+
+        allow delete: if false;
+      }
+
+      // Stage 5D: append-only activity log. Entries can be created by active members
+      // (as themselves, with the server time) and read by active members. They can never be edited or deleted.
+      match /activity/{activityId} {
+        allow read: if isActiveMember(libraryId);
+
+        allow create: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["type", "summary", "actorId", "actorName", "createdAt"])
+          && request.resource.data.keys().hasOnly(["type", "summary", "actorId", "actorName", "createdAt", "targetType", "targetId"])
+          && request.resource.data.type in [
+            "book_added", "book_edited", "book_deleted", "books_bulk_added",
+            "copy_added", "copy_edited", "copy_deleted",
+            "location_added", "location_edited", "location_deleted",
+            "loan_borrowed", "loan_returned", "loan_extended",
+            "wishlist_added", "wishlist_removed",
+            "member_approved", "member_activated", "member_deactivated"
+          ]
+          && request.resource.data.summary is string
+          && request.resource.data.summary.size() > 0
+          && request.resource.data.summary.size() <= 240
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.actorName is string
+          && request.resource.data.actorName.size() <= 60
+          && request.resource.data.createdAt == request.time
+          && (!request.resource.data.keys().hasAny(["targetType"])
+              || (request.resource.data.targetType is string && request.resource.data.targetType.size() <= 20))
+          && (!request.resource.data.keys().hasAny(["targetId"])
+              || (request.resource.data.targetId is string && request.resource.data.targetId.size() <= 64));
+
+        allow update, delete: if false;
+      }
+
+      // Stage 6C: reading status and rating. One record per person per book.
+      // The document ID must be <bookId>_<uid>, so nobody can write or change another person's record.
+      // Stage 7B adds optional progress fields: currentPage, startedAt, finishedAt.
+      match /readings/{readingId} {
+        allow read: if isActiveMember(libraryId);
+
+        allow create: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["bookId", "userId", "userName", "status", "updatedAt"])
+          && request.resource.data.keys().hasOnly([
+            "bookId", "userId", "userName", "status", "rating", "updatedAt",
+            "currentPage", "startedAt", "finishedAt"
+          ])
+          && request.resource.data.bookId is string
+          && request.resource.data.bookId.size() > 0
+          && request.resource.data.bookId.size() <= 64
+          && request.resource.data.userId == request.auth.uid
+          && readingId == request.resource.data.bookId + "_" + request.auth.uid
+          && request.resource.data.userName is string
+          && request.resource.data.userName.size() <= 60
+          && request.resource.data.status in ["none", "want", "reading", "finished"]
+          && (!request.resource.data.keys().hasAny(["rating"])
+              || (request.resource.data.rating is int
+                  && request.resource.data.rating >= 1
+                  && request.resource.data.rating <= 5))
+          && validReadingProgress()
+          && request.resource.data.updatedAt == request.time;
+
+        allow update: if isActiveMember(libraryId)
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.keys().hasAll(["bookId", "userId", "userName", "status", "updatedAt"])
+          && request.resource.data.keys().hasOnly([
+            "bookId", "userId", "userName", "status", "rating", "updatedAt",
+            "currentPage", "startedAt", "finishedAt"
+          ])
+          && request.resource.data.bookId == resource.data.bookId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.userName is string
+          && request.resource.data.userName.size() <= 60
+          && request.resource.data.status in ["none", "want", "reading", "finished"]
+          && (!request.resource.data.keys().hasAny(["rating"])
+              || (request.resource.data.rating is int
+                  && request.resource.data.rating >= 1
+                  && request.resource.data.rating <= 5))
+          && validReadingProgress()
+          && request.resource.data.updatedAt == request.time;
+
+        allow delete: if isActiveMember(libraryId)
+          && resource.data.userId == request.auth.uid;
+      }
+
+      // Stage 7C: personal reading log (one small entry per forward progress update).
+      // Private: only the person who wrote an entry can read or delete it. Entries are never edited.
+      // Queries must filter with where("userId", "==", uid) and use no orderBy.
+      match /readingLogs/{logId} {
+        allow get: if isActiveMember(libraryId)
+          && (resource == null || resource.data.userId == request.auth.uid);
+        allow list: if isActiveMember(libraryId)
+          && resource.data.userId == request.auth.uid;
+
+        allow create: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["userId", "bookId", "date", "pages", "toPage", "createdAt", "createdBy"])
+          && request.resource.data.keys().hasOnly(["userId", "bookId", "date", "pages", "toPage", "createdAt", "createdBy"])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.bookId is string
+          && request.resource.data.bookId.size() > 0
+          && request.resource.data.bookId.size() <= 64
+          && request.resource.data.date is string
+          && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && request.resource.data.pages is int
+          && request.resource.data.pages >= 1
+          && request.resource.data.pages <= 5000
+          && request.resource.data.toPage is int
+          && request.resource.data.toPage >= 0
+          && request.resource.data.toPage <= 20000;
+
+        allow update: if false;
+
+        allow delete: if isActiveMember(libraryId)
+          && resource.data.userId == request.auth.uid;
+      }
+
+      // Stage 7D: personal yearly reading challenge. Document ID is <uid>_<year>.
+      // Private: only the owner can read, create, change or delete it.
+      match /challenges/{challengeId} {
+        allow get: if isActiveMember(libraryId)
+          && (resource == null || resource.data.userId == request.auth.uid);
+        allow list: if isActiveMember(libraryId)
+          && resource.data.userId == request.auth.uid;
+
+        allow create: if isActiveMember(libraryId)
+          && request.resource.data.keys().hasAll(["userId", "year", "createdAt", "createdBy", "updatedAt", "updatedBy"])
+          && request.resource.data.keys().hasOnly([
+            "userId", "year", "goalBooks", "goalPages",
+            "createdAt", "createdBy", "updatedAt", "updatedBy"
+          ])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.year is int
+          && request.resource.data.year >= 2000
+          && request.resource.data.year <= 2100
+          && challengeId == request.auth.uid + "_" + string(request.resource.data.year)
+          && validChallengeGoals()
+          && validAuditCreate();
+
+        allow update: if isActiveMember(libraryId)
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.keys().hasAll(["userId", "year", "createdAt", "createdBy", "updatedAt", "updatedBy"])
+          && request.resource.data.keys().hasOnly([
+            "userId", "year", "goalBooks", "goalPages",
+            "createdAt", "createdBy", "updatedAt", "updatedBy"
+          ])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.year == resource.data.year
+          && validChallengeGoals()
+          && validAuditUpdate();
+
+        allow delete: if isActiveMember(libraryId)
+          && resource.data.userId == request.auth.uid;
+      }
+
+      // All other collections remain closed unless explicitly added later.
+      match /{collectionName}/{document=**} {
+        allow read, write: if false;
+      }
+    }
+  }
+}
