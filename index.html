@@ -328,6 +328,7 @@ label { display: grid; gap: 6px; font-size: 12px; font-weight: 600; color: var(-
 .owner-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .owner-chip { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: rgba(var(--ink-rgb),.07); color: var(--muted); }
 .pill.pill-owner { margin-left: 6px; background: rgba(var(--ink-rgb),.07); color: var(--muted); }
+.pill.pill-owner, .owner-chips, #owner-nudge { display: none !important; }
 .pill.pill-owner.pill-owner-none { background: rgba(var(--warn-rgb),.14); color: var(--warn); }
 .tile-actions { display: flex; gap: 6px; }
 .books-list-view { display: grid; gap: 10px; }
@@ -769,7 +770,7 @@ body { background: radial-gradient(1100px 600px at 85% -8%, rgba(var(--lime-rgb)
           <div class="home-grid">
             <div class="home-main">
               <article class="panel" id="home-reading"><div class="panel-head"><h2>Currently reading <span class="hr-count" id="home-reading-count"></span></h2><button class="text-button" type="button" data-goto="reading">My reading</button></div><div id="home-reading-list" class="hr-row"></div><div id="home-challenge"></div></article>
-              <article class="panel hidden" id="owner-nudge"><div class="panel-head"><h2>Who owns what?</h2></div><p class="muted" id="owner-nudge-text"></p><div class="library-actions"><button class="secondary-button" type="button" id="owner-nudge-button">Set owners</button></div></article>
+              <article class="panel hidden" id="owner-nudge" hidden><div class="panel-head"><h2>Who owns what?</h2></div><p class="muted" id="owner-nudge-text"></p><div class="library-actions"><button class="secondary-button" type="button" id="owner-nudge-button">Set owners</button></div></article>
               <article class="panel">
                 <div class="panel-head"><h2>Needs attention</h2><button class="text-button" type="button" data-goto="borrowing">Open borrowing</button></div>
                 <div id="attention-list" class="attention-list"></div>
@@ -855,7 +856,7 @@ body { background: radial-gradient(1100px 600px at 85% -8%, rgba(var(--lime-rgb)
                 <label>Total pages (optional)<input name="totalPages" type="text" inputmode="numeric" maxlength="6" placeholder="e.g. 320"></label>
                 <label class="wide">Cover image URL (optional)<input name="coverUrl" type="url" placeholder="https://..."></label>
                 <label class="wide">Description / notes<textarea name="description" maxlength="2000"></textarea></label>
-                <div id="also-copy-block" class="wide also-copy"><label class="also-copy-check"><input type="checkbox" name="alsoCopy" checked><span>I own this book: also add a physical copy<small>Untick it if you only want the book in the catalogue (you can add copies later in Copies).</small></span></label><label>Shelf / location for the copy<select name="copyLocationId"><option value="">Not assigned yet</option></select></label><label>Owner of the copy<select name="copyOwnerId"></select></label></div>
+                <div id="also-copy-block" class="wide also-copy"><label class="also-copy-check"><input type="checkbox" name="alsoCopy" checked><span>Also add a physical copy<small>Untick it if you only want the book in the catalogue (you can add copies later in Copies).</small></span></label><label>Shelf / location for the copy<select name="copyLocationId"><option value="">Not assigned yet</option></select></label><label class="hidden">Owner of the copy<select name="copyOwnerId"></select></label></div>
                 <div class="library-actions wide"><button class="primary-button" type="submit" id="book-submit">Add book</button><button class="secondary-button" type="button" id="book-cancel">Clear form</button></div>
               </form>
               <p id="book-message" class="message" role="status"></p>
@@ -874,7 +875,7 @@ body { background: radial-gradient(1100px 600px at 85% -8%, rgba(var(--lime-rgb)
                 <option value="recent">Recently added</option>
                 <option value="year-new">Newest published</option>
               </select>
-              <select id="book-owner" aria-label="Filter books by owner"><option value="any">Anyone's books</option></select>
+              <select id="book-owner" class="hidden" aria-label="Filter books by owner"><option value="any">Anyone's books</option></select>
               <button type="button" id="filters-toggle" class="secondary-button" aria-expanded="false" aria-controls="advanced-panel">Filters<span id="filter-count" class="count-badge hidden">0</span></button>
               <div class="view-switch" role="group" aria-label="Catalogue view">
                 <button type="button" id="view-grid" aria-pressed="true" title="Tile view" aria-label="Tile view"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></button>
@@ -911,7 +912,7 @@ body { background: radial-gradient(1100px 600px at 85% -8%, rgba(var(--lime-rgb)
                   <option value="none">Not set</option>
                 </select>
               </label>
-              <label>Owner
+              <label class="hidden">Owner
                 <select id="adv-owner"><option value="any">Anyone</option></select>
               </label>
               <div class="adv-actions" style="grid-column:1/-1"><button type="button" id="filters-reset" class="secondary-button">Clear all filters</button></div>
@@ -938,7 +939,7 @@ body { background: radial-gradient(1100px 600px at 85% -8%, rgba(var(--lime-rgb)
             <label><input type="checkbox" id="src-hardcover" disabled> Hardcover</label>
             <label><input type="checkbox" id="quick-copy" checked> Add a physical copy</label>
             <label>Shelf <select id="quick-location" aria-label="Shelf for new copies"><option value="">Not assigned yet</option></select></label>
-            <label>Owner <select id="quick-owner" aria-label="Owner of new copies"></select></label>
+            <label class="hidden">Owner <select id="quick-owner" aria-label="Owner of new copies"></select></label>
           </div>
           <p id="discovery-counts" class="muted" style="font-size:13px;margin:0 0 8px" aria-live="polite"></p>
           <p id="discovery-message" class="message" role="status" aria-live="polite"></p>
@@ -1021,7 +1022,7 @@ body { background: radial-gradient(1100px 600px at 85% -8%, rgba(var(--lime-rgb)
                 <label>Copy label<input name="copyLabel" maxlength="60" placeholder="e.g. Copy 1"></label>
                 <label>Condition<select name="condition"><option>Good</option><option>Like new</option><option>Fair</option><option>Poor</option></select></label>
                 <label>Status<select name="status"><option>Available</option><option>Reading</option><option>Repair</option></select></label>
-                <label>Owner<select name="ownerId"></select></label>
+                <label class="hidden">Owner<select name="ownerId"></select></label>
                 <label class="wide">Location<select name="locationId"><option value="">Not assigned yet</option></select></label>
                 <label class="wide">Notes<textarea name="notes" maxlength="1000"></textarea></label>
                 <div class="library-actions wide"><button class="primary-button" type="submit" id="copy-submit">Add copy</button><button class="secondary-button" type="button" id="copy-cancel">Clear form</button></div>
@@ -1031,7 +1032,7 @@ body { background: radial-gradient(1100px 600px at 85% -8%, rgba(var(--lime-rgb)
           </details>
           <div id="copy-tools" class="copy-tools hidden">
             <input type="search" id="copy-filter" placeholder="Title, author, shelf…" aria-label="Filter copies" autocomplete="off">
-            <select id="copy-owner-filter" aria-label="Filter copies by owner"><option value="any">Any owner</option></select>
+            <select id="copy-owner-filter" class="hidden" aria-label="Filter copies by owner"><option value="any">Any owner</option></select>
             <button class="secondary-button" type="button" id="copy-select-toggle">Select copies</button>
           </div>
           <div id="copy-bulk-bar" class="bulk-bar hidden">
@@ -1045,7 +1046,7 @@ body { background: radial-gradient(1100px 600px at 85% -8%, rgba(var(--lime-rgb)
               <label>Status<select id="bulk-status"><option value="">Keep as is</option><option>Available</option><option>Reading</option><option>Repair</option></select></label>
               <label>Condition<select id="bulk-condition"><option value="">Keep as is</option><option>Good</option><option>Like new</option><option>Fair</option><option>Poor</option></select></label>
               <label>Location<select id="bulk-location"><option value="">Keep as is</option></select></label>
-              <label>Owner<select id="bulk-owner"><option value="">Keep as is</option></select></label>
+              <label class="hidden">Owner<select id="bulk-owner"><option value="">Keep as is</option></select></label>
             </div>
             <div class="library-actions"><button class="primary-button" type="button" id="copy-bulk-apply">Apply to selected</button><button class="secondary-button" type="button" id="copy-bulk-cancel">Done</button></div>
             <p id="copy-bulk-message" class="message" role="status"></p>
@@ -1114,7 +1115,7 @@ body { background: radial-gradient(1100px 600px at 85% -8%, rgba(var(--lime-rgb)
             <article class="panel"><h2>Books by language</h2><p class="report-note">Books with no language set are counted separately.</p><div id="rep-language-donut" class="donut-box"></div><div id="rep-language" class="bar-list"></div></article>
             <article class="panel"><h2>Books by genre</h2><p class="report-note" id="rep-genre-note">Top genres.</p><div id="rep-genre" class="bar-list"></div></article>
             <article class="panel"><h2>Copies by status</h2><p class="report-note">What state your physical copies are in right now.</p><div id="rep-status-donut" class="donut-box"></div><div id="rep-status" class="bar-list"></div></article>
-            <article class="panel"><h2>Copies by owner</h2><p class="report-note">Who owns your physical copies. Copies with no owner set are counted separately.</p><div id="rep-owner-donut" class="donut-box"></div><div id="rep-owner" class="bar-list"></div></article>
+            <article class="panel hidden"><h2>Copies by owner</h2><p class="report-note">Who owns your physical copies. Copies with no owner set are counted separately.</p><div id="rep-owner-donut" class="donut-box"></div><div id="rep-owner" class="bar-list"></div></article>
             <article class="panel"><h2>Copies by location</h2><p class="report-note" id="rep-location-note">Where your copies are kept.</p><div id="rep-location" class="bar-list"></div></article>
             <article class="panel wide"><h2>Borrowing by month</h2><p class="report-note">Books borrowed in each of the last 12 months.</p><div id="rep-months" class="month-chart" role="img" aria-label="Borrowings per month for the last 12 months"></div></article>
             <article class="panel"><h2>Most borrowed books</h2><p class="report-note">Counted across the whole borrowing history.</p><div id="rep-popular" class="bar-list"></div></article>
@@ -1725,6 +1726,7 @@ function fillOwnerSelect(select, kind, anyLabel = "Anyone") {
   select.dataset.filled = "1";
 }
 function refreshOwnerSelects() {
+  return; // Marginalia: ownership removed (single user)
   fillOwnerSelect($("#copy-form [name=ownerId]"), "pick-edit");
   fillOwnerSelect($("#book-form [name=copyOwnerId]"), "pick");
   fillOwnerSelect($("#quick-owner"), "pick");
@@ -2625,7 +2627,7 @@ $("#copy-bulk-apply").addEventListener("click", async () => {
   const status = $("#bulk-status").value, condition = $("#bulk-condition").value, locationId = $("#bulk-location").value, ownerId = $("#bulk-owner").value;
   const targets = libraryCollections.copies.filter((copy) => copyBulk.selected.has(copy.id));
   if (!targets.length) { message("#copy-bulk-message", "Tick at least one copy first.", "error"); return; }
-  if (!status && !condition && !locationId && !ownerId) { message("#copy-bulk-message", "Choose at least one thing to change (status, condition, location or owner).", "error"); return; }
+  if (!status && !condition && !locationId && !ownerId) { message("#copy-bulk-message", "Choose at least one thing to change (status, condition or location).", "error"); return; }
   if (!navigator.onLine) { message("#copy-bulk-message", "You are offline. This needs an internet connection, so nothing was changed.", "error"); return; }
   const plan = targets.map((copy) => {
     const change = {};
